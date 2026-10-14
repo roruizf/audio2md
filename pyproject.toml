@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "audio2md"
+version = "0.1.0"
+description = "Local, resumable media-to-text pipeline with auditable Markdown output"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Roberto Ruiz Flores" }]
+dependencies = [
+  "av>=11,<19",
+  "faster-whisper==1.2.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+audio2md = "audio2md.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio2md"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
