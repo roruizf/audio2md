@@ -97,3 +97,13 @@ uv run audio2md --help
 
 Design references: [architecture](docs/architecture.md),
 [output bundle](docs/output-schema.md), and [capabilities](docs/capabilities.md).
+
+Prepare provider-neutral evidence packets for grounded synthesis:
+
+```bash
+uv run audio2md-study prepare output/my-item
+uv run audio2md-study validate output/my-item output/my-item/study/manual.md
+```
+
+This step is local and does not call an LLM or send transcript content over the network. See the
+[grounded synthesis contract](docs/synthesis-contract.md).

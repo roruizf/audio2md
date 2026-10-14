@@ -36,3 +36,15 @@ statements and blocks publication when unsupported claims remain.
 Packet creation can be deterministic and local. Model execution must use an explicit adapter. Local models keep the
 entire flow offline; sending transcripts to a hosted API requires separate approval for the provider and material.
 The first implementation should accept an already-created transcript bundle, not acquire media itself.
+
+## Local preparation
+
+```bash
+audio2md-study prepare path/to/bundle --max-words 1200 --overlap-segments 2
+audio2md-study validate path/to/bundle path/to/bundle/study/manual.md
+```
+
+Preparation is idempotent and signs the source `segments.json` plus packet settings. `max-words` limits new core
+evidence; explicitly labeled overlap context may increase a packet's total. Every packet after the first contributes
+at least one new segment. Validation checks that content lines carry citations and that every cited segment exists.
+Semantic entailment remains the later verifier model's job.

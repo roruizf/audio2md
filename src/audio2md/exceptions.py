@@ -7,3 +7,7 @@ class Audio2MdError(Exception):
 
 class InvalidTranscriptError(Audio2MdError):
     """Raised when ASR output cannot be represented safely."""
+
+
+class InvalidBundleError(Audio2MdError):
+    """Raised when an audio2md bundle is missing or structurally invalid."""
