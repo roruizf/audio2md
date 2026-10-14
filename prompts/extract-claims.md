@@ -18,3 +18,7 @@ Rules:
 - Label inference explicitly; uncertainty is preferable to invented certainty.
 - Put promotion, introductions, logistics and calls to action in `exclusions`.
 - Record likely ASR errors in `uncertainties`; do not silently correct them.
+- Treat claims as statements made by the source, not independently verified facts.
+- Preserve explicit speaker attribution and temporal context for opinions, forecasts, recommendations, disputed
+  claims and time-sensitive information.
+- Never convert financial, medical, legal or other consequential commentary into professional advice.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .evidence import load_segments, validate_citations
@@ -14,7 +15,10 @@ Return JSON only with arrays: claims, exclusions, uncertainties, glossary.
 Every claim must contain claim_id, text, evidence, and classification: source, inference, or uncertain.
 Use only supplied segments. Preserve numbers, standards, versions, conditions and exceptions.
 Do not add outside knowledge. Put promotion and logistics in exclusions.
-Record likely ASR errors in uncertainties instead of silently correcting them."""
+Record likely ASR errors in uncertainties instead of silently correcting them.
+Treat claims as statements made by the source, not independently verified facts. Preserve explicit speaker
+attribution and temporal context for opinions, forecasts, recommendations, disputed claims, and time-sensitive
+information. Never convert financial, medical, legal, or other consequential commentary into professional advice."""
 
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -36,7 +40,10 @@ Do not turn every claim into a separate bullet and do not use generic tasks such
 Every factual paragraph or list item must end with its supporting transcript segment IDs, for example
 [S000042, S000043]. Use only source claims for factual prose. Keep uncertainties clearly labeled and do not
 silently correct them. Omit exclusions unless they explain a material limitation. Do not add outside knowledge,
-cite claim IDs, or wrap the Markdown in code fences."""
+cite claim IDs, or wrap the Markdown in code fences. Preserve attribution and temporal context for opinions,
+forecasts, recommendations, and time-sensitive claims; do not present consequential commentary as professional
+advice. Checklist items must verify or analyze the source's claims. Never instruct the reader to buy, sell, hold,
+wait, act, or make a financial, medical, legal, or other consequential decision."""
 
 COMPOSE_SCHEMA = {
     "type": "object",
@@ -48,10 +55,41 @@ COMPOSE_SCHEMA = {
     "additionalProperties": False,
 }
 
+CONSEQUENTIAL_ACTION_PATTERNS = (
+    re.compile(r"\bbefore acting\b|\bantes de actuar\b", re.IGNORECASE),
+    re.compile(
+        r"\bbefore (?:considering|deciding on) (?:any )?(?:purchase|sale)\b|"
+        r"\bantes de (?:considerar|decidir) (?:cualquier )?(?:compra|venta)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^- \[ \] (?:buy|sell|hold|wait|anticipate|comprar|vender|mantener|esperar|anticipar)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^- \[ \] (?:verify that nobody buys or sells|verificar que no se (?:compra|vende))\b",
+        re.IGNORECASE,
+    ),
+)
+
 
 def _citation(item: dict[str, object]) -> str:
     evidence = item.get("evidence") or []
     return "[" + ", ".join(str(value) for value in evidence) + "]"
+
+
+def _normalize_evidence(evidence: object, group: str) -> list[str]:
+    if not isinstance(evidence, list) or not evidence:
+        raise InvalidBundleError(f"An item in {group} has no evidence")
+    normalized: list[str] = []
+    for value in evidence:
+        if isinstance(value, str):
+            normalized.append(value)
+        elif isinstance(value, dict) and isinstance(value.get("segment_id"), str):
+            normalized.append(value["segment_id"])
+        else:
+            raise InvalidBundleError(f"An item in {group} has invalid evidence")
+    return normalized
 
 
 def _validate_ledger(payload: object, valid_ids: set[str]) -> dict[str, list[dict[str, object]]]:
@@ -63,12 +101,18 @@ def _validate_ledger(payload: object, valid_ids: set[str]) -> dict[str, list[dic
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise InvalidBundleError(f"Model response has an invalid {group} array")
         for item in items:
-            evidence = item.get("evidence")
-            if not isinstance(evidence, list) or not evidence:
-                raise InvalidBundleError(f"An item in {group} has no evidence")
-            unknown = set(map(str, evidence)) - valid_ids
+            evidence_source = item.get("evidence") or item.get("segment_ids")
+            evidence = _normalize_evidence(evidence_source, group)
+            unknown = set(evidence) - valid_ids
             if unknown:
                 raise InvalidBundleError(f"Unknown evidence IDs in {group}: {sorted(unknown)}")
+            item["evidence"] = evidence
+            item.pop("segment_ids", None)
+            if group == "uncertainties" and not isinstance(item.get("text"), str):
+                issue = item.get("issue")
+                if not isinstance(issue, str) or not issue.strip():
+                    raise InvalidBundleError("An item in uncertainties has no text")
+                item["text"] = issue
         validated[group] = items
     return validated
 
@@ -88,6 +132,18 @@ def _validate_composition(payload: object) -> dict[str, str]:
             raise InvalidBundleError(f"Model composition wrapped {key} in a code fence")
         outputs[f"{key}.md"] = value.rstrip() + "\n"
     return outputs
+
+
+def _consequential_action_issues(content: str) -> list[dict[str, object]]:
+    issues: list[dict[str, object]] = []
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        if not line.startswith("- [ ] "):
+            continue
+        for pattern in CONSEQUENTIAL_ACTION_PATTERNS:
+            if pattern.search(line):
+                issues.append({"line": line_number, "text": line})
+                break
+    return issues
 
 
 def compose_knowledge(
@@ -116,7 +172,7 @@ def compose_knowledge(
         for segment_id in item["evidence"]
     }
     request_signature = {
-        "prompt_version": 1,
+        "prompt_version": 3,
         "claims_sha256": sha256_file(claims_path),
         "adapter": type(adapter).__name__,
         "model": getattr(adapter, "model", "unknown"),
@@ -148,11 +204,14 @@ def compose_knowledge(
     validation: dict[str, object] = {"status": "pass", "artifacts": {}}
     for name, content in outputs.items():
         issues = validate_citations(content, ledger_ids)
+        action_issues = _consequential_action_issues(content) if name == "checklist.md" else []
         validation["artifacts"][name] = {
             "issue_count": len(issues),
             "issues": [issue.as_dict() for issue in issues],
+            "consequential_action_issue_count": len(action_issues),
+            "consequential_action_issues": action_issues,
         }
-        if issues:
+        if issues or action_issues:
             validation["status"] = "failed"
     attempt = {
         "schema_version": 1,
@@ -168,7 +227,7 @@ def compose_knowledge(
     write_json_atomic(knowledge_dir / "compose-attempt.json", attempt)
     write_json_atomic(knowledge_dir / "citation-report.json", validation)
     if validation["status"] != "pass":
-        raise InvalidBundleError("Composed artifacts failed citation validation")
+        raise InvalidBundleError("Composed artifacts failed citation or safety validation")
 
     for name, content in outputs.items():
         write_text_atomic(knowledge_dir / name, content)
@@ -213,7 +272,7 @@ def extract_and_render(
         raise InvalidBundleError("evidence-packets.json has an invalid shape")
     knowledge_dir = bundle_dir / "knowledge"
     request_signature = {
-        "prompt_version": 1,
+        "prompt_version": 2,
         "evidence_packets_sha256": sha256_file(evidence_path),
         "adapter": type(adapter).__name__,
         "model": getattr(adapter, "model", "unknown"),
@@ -246,13 +305,59 @@ def extract_and_render(
             EXTRACT_SCHEMA,
         )
     )
+    attempt_path = knowledge_dir / "claims-attempt.json"
     try:
         raw_ledger = json.loads(response.text)
     except json.JSONDecodeError as error:
+        write_json_atomic(
+            attempt_path,
+            {
+                "schema_version": 1,
+                "status": "rejected",
+                "provider": response.provider,
+                "model": response.model,
+                "cost_usd": response.cost_usd,
+                "tokens": response.usage,
+                "signature": request_signature,
+                "error": f"invalid JSON: {error}",
+                "output_text": response.text,
+            },
+        )
         raise InvalidBundleError(f"Model returned invalid JSON: {error}") from error
     segments = load_segments(bundle_dir)
     valid_ids = {str(segment["id"]) for segment in segments}
-    ledger = _validate_ledger(raw_ledger, valid_ids)
+    try:
+        ledger = _validate_ledger(raw_ledger, valid_ids)
+    except InvalidBundleError as error:
+        write_json_atomic(
+            attempt_path,
+            {
+                "schema_version": 1,
+                "status": "rejected",
+                "provider": response.provider,
+                "model": response.model,
+                "cost_usd": response.cost_usd,
+                "tokens": response.usage,
+                "signature": request_signature,
+                "error": str(error),
+                "output": raw_ledger,
+            },
+        )
+        raise
+
+    write_json_atomic(
+        attempt_path,
+        {
+            "schema_version": 1,
+            "status": "accepted",
+            "provider": response.provider,
+            "model": response.model,
+            "cost_usd": response.cost_usd,
+            "tokens": response.usage,
+            "signature": request_signature,
+            "output": ledger,
+        },
+    )
 
     write_json_atomic(knowledge_dir / "claims.json", ledger)
     run = {

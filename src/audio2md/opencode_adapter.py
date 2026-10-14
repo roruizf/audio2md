@@ -26,7 +26,7 @@ class OpenCodeAdapter:
         *,
         model: str = DEFAULT_MODEL,
         workdir: Path = Path("/tmp"),
-        timeout: float = 180.0,
+        timeout: float = 300.0,
         runner: Runner = subprocess.run,
     ) -> None:
         self.model = model
@@ -63,7 +63,11 @@ class OpenCodeAdapter:
                 timeout=self.timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
+        except subprocess.TimeoutExpired as error:
+            raise OpenCodeLlmError(
+                f"OpenCode timed out after {error.timeout} seconds; its local session may be recoverable"
+            ) from error
+        except OSError as error:
             raise OpenCodeLlmError(f"Cannot execute OpenCode: {error}") from error
         if completed.returncode != 0:
             detail = completed.stderr.strip()[-1000:]
@@ -72,7 +76,7 @@ class OpenCodeAdapter:
             )
 
         text_response: str | None = None
-        usage: dict[str, int] = {}
+        usage: dict[str, int] = {key: 0 for key in ("input", "output", "reasoning", "total")}
         cost_usd: float | None = None
         for line in completed.stdout.splitlines():
             try:
@@ -84,12 +88,10 @@ class OpenCodeAdapter:
                 text_response = part["text"]
             if event.get("type") == "step_finish":
                 raw_tokens = part.get("tokens") or {}
-                usage = {
-                    key: int(raw_tokens.get(key, 0))
-                    for key in ("input", "output", "reasoning", "total")
-                }
+                for key in usage:
+                    usage[key] += int(raw_tokens.get(key, 0))
                 if part.get("cost") is not None:
-                    cost_usd = float(part["cost"])
+                    cost_usd = (cost_usd or 0.0) + float(part["cost"])
         if text_response is None:
             raise OpenCodeLlmError("OpenCode returned no text response")
         return LlmResponse(

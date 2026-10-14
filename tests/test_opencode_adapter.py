@@ -47,6 +47,41 @@ def test_opencode_adapter_uses_pure_mode_and_parses_events() -> None:
     assert response.cost_usd == 0.001
 
 
+def test_opencode_adapter_aggregates_multi_step_usage_and_cost() -> None:
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        events = [
+            {
+                "type": "step_finish",
+                "part": {
+                    "tokens": {"input": 10, "output": 4, "reasoning": 2, "total": 16},
+                    "cost": 0.001,
+                },
+            },
+            {"type": "text", "part": {"text": '{"manual":"m"}'}},
+            {
+                "type": "step_finish",
+                "part": {
+                    "tokens": {"input": 8, "output": 3, "reasoning": 1, "total": 12},
+                    "cost": 0.002,
+                },
+            },
+        ]
+        return subprocess.CompletedProcess(command, 0, "\n".join(map(json.dumps, events)), "")
+
+    response = OpenCodeAdapter(runner=runner).complete(LlmRequest("compose", "system", "ledger"))
+    assert response.usage == {"input": 18, "output": 7, "reasoning": 3, "total": 28}
+    assert response.cost_usd == pytest.approx(0.003)
+
+
+def test_opencode_adapter_timeout_is_concise_and_recoverable() -> None:
+    def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(command, 300)
+
+    with pytest.raises(OpenCodeLlmError, match="local session may be recoverable") as error:
+        OpenCodeAdapter(runner=runner).complete(LlmRequest("compose", "system", "private ledger"))
+    assert "private ledger" not in str(error.value)
+
+
 def test_opencode_adapter_reports_cli_failure() -> None:
     def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 7, "", "subscription unavailable")

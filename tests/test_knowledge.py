@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
+from audio2md.exceptions import InvalidBundleError
 from audio2md.llm import LlmRequest, LlmResponse
 from audio2md.legacy import migrate_legacy_bundle
-from audio2md.knowledge import compose_knowledge, extract_and_render
+from audio2md.knowledge import COMPOSE_PROMPT, EXTRACT_PROMPT, compose_knowledge, extract_and_render
 
 
 class FakeAdapter:
@@ -28,6 +31,13 @@ class FakeAdapter:
             "glossary": [],
         }
         return LlmResponse(json.dumps(payload), "fake-model", "fake", {"total": 10}, 0.0)
+
+
+def test_prompts_preserve_attribution_for_consequential_claims() -> None:
+    assert "not independently verified facts" in EXTRACT_PROMPT
+    assert "professional advice" in EXTRACT_PROMPT
+    assert "Preserve attribution and temporal context" in COMPOSE_PROMPT
+    assert "Never instruct the reader to buy" in COMPOSE_PROMPT
 
 
 class FakeCompositionAdapter:
@@ -64,6 +74,51 @@ def test_extract_and_render_creates_cited_artifacts(tmp_path: Path) -> None:
     assert adapter.calls == 1
     assert "[S000001]" in (knowledge / "manual.md").read_text()
     assert json.loads((knowledge / "claims-run.json").read_text())["provider"] == "fake"
+    assert json.loads((knowledge / "claims-attempt.json").read_text())["status"] == "accepted"
+
+
+def test_extract_normalizes_structured_evidence_and_rejects_unknown_ids(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    knowledge = bundle / "knowledge"
+    knowledge.mkdir(parents=True)
+    segments = [{"id": "S000001", "start": 0, "end": 1, "text": "Evidence."}]
+    (bundle / "segments.json").write_text(json.dumps(segments), encoding="utf-8")
+    (knowledge / "evidence-packets.json").write_text(
+        json.dumps({"packets": [{"id": "P00001", "segments": segments}]}), encoding="utf-8"
+    )
+
+    class StructuredEvidenceAdapter(FakeAdapter):
+        def __init__(self, segment_id: str) -> None:
+            super().__init__()
+            self.segment_id = segment_id
+
+        def complete(self, request: LlmRequest) -> LlmResponse:
+            response = super().complete(request)
+            payload = json.loads(response.text)
+            payload["claims"][0]["evidence"] = [
+                {"segment_id": self.segment_id, "quote": "Evidence."}
+            ]
+            payload["uncertainties"] = [
+                {
+                    "id": "U0001",
+                    "issue": "Probable ASR error.",
+                    "segment_ids": [self.segment_id],
+                    "note": "Do not silently correct it.",
+                }
+            ]
+            return LlmResponse(json.dumps(payload), self.model, "fake", {"total": 10}, 0.0)
+
+    extract_and_render(bundle, StructuredEvidenceAdapter("S000001"))
+    claims = json.loads((knowledge / "claims.json").read_text())
+    assert claims["claims"][0]["evidence"] == ["S000001"]
+    assert claims["uncertainties"][0]["evidence"] == ["S000001"]
+    assert claims["uncertainties"][0]["text"] == "Probable ASR error."
+    assert "segment_ids" not in claims["uncertainties"][0]
+
+    with pytest.raises(InvalidBundleError, match="Unknown evidence IDs"):
+        extract_and_render(bundle, StructuredEvidenceAdapter("S999999"), force=True)
+    attempt = json.loads((knowledge / "claims-attempt.json").read_text())
+    assert attempt["status"] == "rejected"
 
 
 def test_migrate_legacy_bundle_adds_stable_ids(tmp_path: Path) -> None:
@@ -152,9 +207,46 @@ def test_compose_knowledge_preserves_rejected_attempt(tmp_path: Path) -> None:
     try:
         compose_knowledge(bundle, UncitedAdapter())
     except Exception as error:
-        assert "failed citation validation" in str(error)
+        assert "failed citation or safety validation" in str(error)
     else:
         raise AssertionError("Expected citation validation to fail")
     attempt = json.loads((knowledge / "compose-attempt.json").read_text())
     assert attempt["status"] == "rejected"
     assert attempt["validation"]["artifacts"]["summary.md"]["issue_count"] == 1
+
+
+def test_compose_rejects_consequential_action_checklist(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    knowledge = bundle / "knowledge"
+    knowledge.mkdir(parents=True)
+    segments = [{"id": "S000001", "start": 0, "end": 1, "text": "Source opinion."}]
+    (bundle / "segments.json").write_text(json.dumps(segments), encoding="utf-8")
+    ledger = {
+        "claims": [
+            {
+                "claim_id": "C00001",
+                "text": "The source discusses a purchase.",
+                "evidence": ["S000001"],
+                "classification": "source",
+            }
+        ],
+        "exclusions": [],
+        "uncertainties": [],
+        "glossary": [],
+    }
+    (knowledge / "claims.json").write_text(json.dumps(ledger), encoding="utf-8")
+
+    class AdviceAdapter(FakeCompositionAdapter):
+        def complete(self, request: LlmRequest) -> LlmResponse:
+            response = super().complete(request)
+            payload = json.loads(response.text)
+            payload["checklist"] = "# Checklist\n\n- [ ] Buy the asset before acting. [S000001]"
+            return LlmResponse(json.dumps(payload), self.model, "fake", {"total": 20}, 0.0)
+
+    with pytest.raises(InvalidBundleError, match="safety validation"):
+        compose_knowledge(bundle, AdviceAdapter())
+    attempt = json.loads((knowledge / "compose-attempt.json").read_text())
+    assert attempt["status"] == "rejected"
+    assert attempt["validation"]["artifacts"]["checklist.md"][
+        "consequential_action_issue_count"
+    ] == 1
