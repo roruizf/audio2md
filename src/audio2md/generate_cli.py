@@ -11,12 +11,13 @@ from .exceptions import Audio2MdError
 from .legacy import migrate_legacy_bundle
 from .opencode_adapter import DEFAULT_MODEL as OPENCODE_MODEL, OpenCodeAdapter
 from .openrouter import DEFAULT_MODEL as OPENROUTER_MODEL, OpenRouterAdapter
-from .study import extract_and_render
+from .knowledge import compose_knowledge, extract_and_render
 
 
 def build_parser() -> argparse.ArgumentParser:
+    program = Path(sys.argv[0]).name
     parser = argparse.ArgumentParser(
-        prog="audio2md-study", description="Prepare and validate grounded study artifacts"
+        prog=program, description="Prepare and validate grounded knowledge artifacts"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser("prepare", help="Build deterministic evidence packets")
@@ -40,6 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--model")
     extract.add_argument("--execute-hosted", action="store_true", required=True)
     extract.add_argument("--force", action="store_true")
+
+    compose = subparsers.add_parser("compose", help="Create concise knowledge artifacts from claims")
+    compose.add_argument("bundle", type=Path)
+    compose.add_argument("--provider", choices=("opencode-go", "openrouter"), default="opencode-go")
+    compose.add_argument("--model")
+    compose.add_argument("--execute-hosted", action="store_true", required=True)
+    compose.add_argument("--force", action="store_true")
     return parser
 
 
@@ -70,14 +78,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0 if not issues else 2
         elif args.command == "migrate-legacy":
             result = migrate_legacy_bundle(args.legacy_bundle, args.output_bundle)
-        else:
+        elif args.command in {"extract", "compose"}:
             if args.provider == "opencode-go":
                 adapter = OpenCodeAdapter(model=args.model or OPENCODE_MODEL)
             else:
                 adapter = OpenRouterAdapter(model=args.model or OPENROUTER_MODEL)
-            result = extract_and_render(args.bundle, adapter, force=args.force)
+            if args.command == "extract":
+                result = extract_and_render(args.bundle, adapter, force=args.force)
+            else:
+                result = compose_knowledge(args.bundle, adapter, force=args.force)
+        else:
+            raise AssertionError(f"Unhandled command: {args.command}")
     except (Audio2MdError, OSError, ValueError) as error:
-        print(f"audio2md-study: error: {error}", file=sys.stderr)
+        print(f"{Path(sys.argv[0]).name}: error: {error}", file=sys.stderr)
         return 1
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0

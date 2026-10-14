@@ -114,7 +114,7 @@ def prepare_evidence(
         "max_words": max_words,
         "overlap_segments": overlap_segments,
     }
-    output_path = bundle_dir / "study" / "evidence-packets.json"
+    output_path = bundle_dir / "knowledge" / "evidence-packets.json"
     if output_path.is_file() and not force:
         previous = _read_json(output_path)
         if isinstance(previous, dict) and previous.get("signature") == signature:
@@ -146,7 +146,40 @@ def validate_citations(
     issues: list[CitationIssue] = []
     in_frontmatter = False
     in_fence = False
-    for line_number, line in enumerate(markdown.splitlines(), start=1):
+    pending_line = 0
+    pending_parts: list[str] = []
+    lines = markdown.splitlines()
+
+    def validate_block(line_number: int, text: str) -> None:
+        citations = set(CITATION_ID_PATTERN.findall(text))
+        for citation in sorted(citations - valid_ids):
+            issues.append(
+                CitationIssue(
+                    "citation_not_found",
+                    line_number,
+                    f"Citation {citation} does not exist in segments.json",
+                )
+            )
+        content = re.sub(r"\[[^]]*S\d{6}[^]]*\]", "", text).strip()
+        has_prose = bool(re.search(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", content))
+        if require_citations and has_prose and not citations:
+            issues.append(
+                CitationIssue(
+                    "missing_citation",
+                    line_number,
+                    "Content block has no segment citation",
+                )
+            )
+
+    def flush_pending() -> None:
+        nonlocal pending_line, pending_parts
+        if pending_parts:
+            validate_block(pending_line, " ".join(pending_parts))
+        pending_line = 0
+        pending_parts = []
+
+    for index, line in enumerate(lines):
+        line_number = index + 1
         stripped = line.strip()
         if line_number == 1 and stripped == "---":
             in_frontmatter = True
@@ -156,27 +189,30 @@ def validate_citations(
                 in_frontmatter = False
             continue
         if stripped.startswith("```"):
+            flush_pending()
             in_fence = not in_fence
             continue
-        if in_fence or not stripped or stripped.startswith(("#", ">")):
+        if in_fence:
             continue
-        citations = set(CITATION_ID_PATTERN.findall(stripped))
-        for citation in sorted(citations - valid_ids):
-            issues.append(
-                CitationIssue(
-                    "citation_not_found",
-                    line_number,
-                    f"Citation {citation} does not exist in segments.json",
-                )
+        if not stripped or stripped.startswith(("#", ">")):
+            flush_pending()
+            continue
+        if stripped.startswith("|"):
+            flush_pending()
+            is_separator = bool(re.fullmatch(r"\|?[\s:|-]+\|?", stripped))
+            next_is_separator = index + 1 < len(lines) and bool(
+                re.fullmatch(r"\|?[\s:|-]+\|?", lines[index + 1].strip())
             )
-        content = re.sub(r"\[[^]]*S\d{6}[^]]*\]", "", stripped).strip()
-        has_prose = bool(re.search(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", content))
-        if require_citations and has_prose and not citations:
-            issues.append(
-                CitationIssue(
-                    "missing_citation",
-                    line_number,
-                    "Content line has no segment citation",
-                )
-            )
+            if not is_separator and not next_is_separator:
+                validate_block(line_number, stripped)
+            continue
+        if re.match(r"^(?:[-*+]\s+|\d+[.)]\s+)", stripped):
+            flush_pending()
+            pending_line = line_number
+            pending_parts = [stripped]
+            continue
+        if not pending_parts:
+            pending_line = line_number
+        pending_parts.append(stripped)
+    flush_pending()
     return tuple(issues)

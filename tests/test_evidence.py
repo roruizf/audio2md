@@ -32,7 +32,7 @@ def test_prepare_evidence_writes_and_skips_matching_bundle(tmp_path: Path) -> No
     second = prepare_evidence(bundle, max_words=6, overlap_segments=1)
     assert first["status"] == "completed"
     assert second["status"] == "skipped"
-    payload = json.loads((bundle / "study/evidence-packets.json").read_text())
+    payload = json.loads((bundle / "knowledge/evidence-packets.json").read_text())
     assert payload["packet_count"] == 2
 
 
@@ -45,3 +45,19 @@ def test_citation_validator_reports_missing_and_unknown_ids() -> None:
         ("missing_citation", 5),
         ("citation_not_found", 7),
     ]
+
+
+def test_citation_validator_treats_wrapped_markdown_as_logical_blocks() -> None:
+    markdown = """# Manual
+
+A factual paragraph wraps across
+two source lines. [S000001]
+
+- A checklist item also wraps
+  before its citation. [S000001]
+
+| Topic | Evidence |
+| --- | --- |
+| Appendix G | Discussed. [S000001] |
+"""
+    assert validate_citations(markdown, {"S000001"}) == ()

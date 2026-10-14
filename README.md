@@ -5,8 +5,8 @@ timestamped Markdown. The first version intentionally covers one vertical slice:
 
 `local media → faster-whisper → segments.json + manifest.json + transcript.md`
 
-It does not download protected course material, bypass DRM, or generate study
-manuals with an LLM. Acquisition connectors and synthesis belong to later phases.
+It does not download protected course material or bypass DRM. Acquisition connectors
+belong to a later phase; hosted synthesis runs only after explicit authorization.
 
 ## Requirements
 
@@ -86,7 +86,7 @@ created a bundle with non-fatal quality warnings. See [the output contract](docs
 
 ## Current limitations
 
-- LLM-based study artifacts and source-platform connectors are not implemented yet.
+- Source-platform connectors are not implemented yet.
 
 ## Development
 
@@ -101,8 +101,8 @@ Design references: [architecture](docs/architecture.md),
 Prepare provider-neutral evidence packets for grounded synthesis:
 
 ```bash
-uv run audio2md-study prepare output/my-item
-uv run audio2md-study validate output/my-item output/my-item/study/manual.md
+uv run audio2md-generate prepare output/my-item
+uv run audio2md-generate validate output/my-item output/my-item/knowledge/manual.md
 ```
 
 This step is local and does not call an LLM or send transcript content over the network. See the
@@ -114,9 +114,12 @@ OpenCode Go can be used through an existing subscription without exposing or reu
 Migrate an old `run.json` bundle without repeating ASR, then run an explicitly authorized extraction:
 
 ```bash
-uv run audio2md-study migrate-legacy OLD_BUNDLE NEW_BUNDLE
-uv run audio2md-study prepare NEW_BUNDLE
-uv run audio2md-study extract NEW_BUNDLE --provider opencode-go --execute-hosted
+uv run audio2md-generate migrate-legacy OLD_BUNDLE NEW_BUNDLE
+uv run audio2md-generate prepare NEW_BUNDLE
+uv run audio2md-generate extract NEW_BUNDLE --provider opencode-go --execute-hosted
+uv run audio2md-generate compose NEW_BUNDLE --provider opencode-go --execute-hosted
 ```
 
-An identical completed extraction is skipped. `--force` is required to incur a new hosted run deliberately.
+Identical completed extraction and composition runs are skipped. `--force` is required to incur a new hosted run
+deliberately. Composition turns the grounded claim ledger into a concept-organized manual, standalone summary and
+actionable checklist, then rejects any output with missing or unknown citations.

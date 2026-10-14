@@ -11,16 +11,18 @@ segments.json -> evidence packets -> claim ledger -> manual/summary/checklist ->
 1. Every factual claim cites one or more segment IDs such as `[S000042]`.
 2. A claim may combine segments, but must not introduce facts absent from those segments.
 3. Inferences are explicitly labeled and kept separate from source claims.
-4. Promotion, housekeeping and speaker logistics are excluded from study content but may be logged as exclusions.
+4. Promotion, housekeeping and speaker logistics are excluded from knowledge artifacts but may be logged as exclusions.
 5. Unclear terminology and contradictions remain visible; the model must not silently repair them.
 6. Outputs are regenerable. `transcript.md` and `segments.json` remain primary evidence.
 
-## Proposed derived bundle
+## Knowledge bundle
 
 ```text
-study/
+knowledge/
 ├── claims.json
-├── grounding-report.json
+├── claims-run.json
+├── compose-run.json
+├── citation-report.json
 ├── manual.md
 ├── summary.md
 └── checklist.md
@@ -40,8 +42,9 @@ The first implementation should accept an already-created transcript bundle, not
 ## Local preparation
 
 ```bash
-audio2md-study prepare path/to/bundle --max-words 1200 --overlap-segments 2
-audio2md-study validate path/to/bundle path/to/bundle/study/manual.md
+audio2md-generate prepare path/to/bundle --max-words 1200 --overlap-segments 2
+audio2md-generate validate path/to/bundle path/to/bundle/knowledge/manual.md
+audio2md-generate compose path/to/bundle --provider opencode-go --execute-hosted
 ```
 
 Preparation is idempotent and signs the source `segments.json` plus packet settings. `max-words` limits new core

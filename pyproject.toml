@@ -20,7 +20,7 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 audio2md = "audio2md.cli:main"
-audio2md-study = "audio2md.study_cli:main"
+audio2md-generate = "audio2md.generate_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/audio2md"]
