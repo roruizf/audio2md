@@ -39,7 +39,12 @@ def test_openrouter_adapter_builds_private_structured_request() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["response_format"]["json_schema"]["strict"] is True
-    assert body["provider"] == {"require_parameters": True}
+    assert body["provider"] == {
+        "require_parameters": True,
+        "allow_fallbacks": False,
+        "data_collection": "deny",
+        "zdr": True,
+    }
     assert response.text == '{"claims": []}'
     assert response.usage["total_tokens"] == 14
 

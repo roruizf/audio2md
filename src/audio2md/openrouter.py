@@ -74,7 +74,12 @@ class OpenRouterAdapter:
                     "schema": request.response_schema,
                 },
             }
-            body["provider"] = {"require_parameters": True}
+            body["provider"] = {
+                "require_parameters": True,
+                "allow_fallbacks": False,
+                "data_collection": "deny",
+                "zdr": True,
+            }
         wire_request = urllib.request.Request(
             self.endpoint,
             data=json.dumps(body).encode("utf-8"),
