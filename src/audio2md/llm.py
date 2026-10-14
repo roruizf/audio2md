@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -9,7 +9,7 @@ class LlmRequest:
     task: str
     system_prompt: str
     input_text: str
-    response_format: str = "json"
+    response_schema: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class LlmResponse:
     text: str
     model: str
     provider: str
+    usage: dict[str, int]
 
 
 class LlmAdapter(Protocol):

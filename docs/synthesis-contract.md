@@ -48,3 +48,5 @@ Preparation is idempotent and signs the source `segments.json` plus packet setti
 evidence; explicitly labeled overlap context may increase a packet's total. Every packet after the first contributes
 at least one new segment. Validation checks that content lines carry citations and that every cited segment exists.
 Semantic entailment remains the later verifier model's job.
+
+The provider-neutral protocol and the first hosted implementation are documented in [providers](providers.md).

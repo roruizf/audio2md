@@ -107,3 +107,5 @@ uv run audio2md-study validate output/my-item output/my-item/study/manual.md
 
 This step is local and does not call an LLM or send transcript content over the network. See the
 [grounded synthesis contract](docs/synthesis-contract.md).
+
+Hosted model adapters are optional and isolated from the transcription path. See [providers](docs/providers.md).
