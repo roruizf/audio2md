@@ -109,3 +109,4 @@ This step is local and does not call an LLM or send transcript content over the 
 [grounded synthesis contract](docs/synthesis-contract.md).
 
 Hosted model adapters are optional and isolated from the transcription path. See [providers](docs/providers.md).
+OpenCode Go can be used through an existing subscription without exposing or reusing project API keys.

@@ -107,4 +107,5 @@ class OpenRouterAdapter:
             model=str(payload.get("model") or self.model),
             provider="openrouter",
             usage=usage,
+            cost_usd=float(raw_usage["cost"]) if raw_usage.get("cost") is not None else None,
         )

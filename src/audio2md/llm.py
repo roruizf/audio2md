@@ -18,6 +18,7 @@ class LlmResponse:
     model: str
     provider: str
     usage: dict[str, int]
+    cost_usd: float | None = None
 
 
 class LlmAdapter(Protocol):
