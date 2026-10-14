@@ -49,4 +49,8 @@ evidence; explicitly labeled overlap context may increase a packet's total. Ever
 at least one new segment. Validation checks that content lines carry citations and that every cited segment exists.
 Semantic entailment remains the later verifier model's job.
 
+Hosted extraction is guarded by the explicit `--execute-hosted` flag and an idempotency signature covering the
+evidence packets, prompt version, adapter and model. An identical completed request is skipped unless `--force` is
+provided. Model output is validated against bundle-local segment IDs before any Markdown artifact is written.
+
 The provider-neutral protocol and the first hosted implementation are documented in [providers](providers.md).

@@ -8,6 +8,10 @@ from typing import Sequence
 
 from .evidence import load_segments, prepare_evidence, validate_citations
 from .exceptions import Audio2MdError
+from .legacy import migrate_legacy_bundle
+from .opencode_adapter import DEFAULT_MODEL as OPENCODE_MODEL, OpenCodeAdapter
+from .openrouter import DEFAULT_MODEL as OPENROUTER_MODEL, OpenRouterAdapter
+from .study import extract_and_render
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("bundle", type=Path)
     validate.add_argument("artifact", type=Path)
     validate.add_argument("--allow-uncited", action="store_true")
+
+    migrate = subparsers.add_parser("migrate-legacy", help="Convert a legacy bundle without ASR")
+    migrate.add_argument("legacy_bundle", type=Path)
+    migrate.add_argument("output_bundle", type=Path)
+
+    extract = subparsers.add_parser("extract", help="Run authorized hosted claim extraction")
+    extract.add_argument("bundle", type=Path)
+    extract.add_argument("--provider", choices=("opencode-go", "openrouter"), default="opencode-go")
+    extract.add_argument("--model")
+    extract.add_argument("--execute-hosted", action="store_true", required=True)
+    extract.add_argument("--force", action="store_true")
     return parser
 
 
@@ -38,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 overlap_segments=args.overlap_segments,
                 force=args.force,
             )
-        else:
+        elif args.command == "validate":
             segments = load_segments(args.bundle)
             markdown = args.artifact.expanduser().read_text(encoding="utf-8")
             issues = validate_citations(
@@ -53,6 +68,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 0 if not issues else 2
+        elif args.command == "migrate-legacy":
+            result = migrate_legacy_bundle(args.legacy_bundle, args.output_bundle)
+        else:
+            if args.provider == "opencode-go":
+                adapter = OpenCodeAdapter(model=args.model or OPENCODE_MODEL)
+            else:
+                adapter = OpenRouterAdapter(model=args.model or OPENROUTER_MODEL)
+            result = extract_and_render(args.bundle, adapter, force=args.force)
     except (Audio2MdError, OSError, ValueError) as error:
         print(f"audio2md-study: error: {error}", file=sys.stderr)
         return 1

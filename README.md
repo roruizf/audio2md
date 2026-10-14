@@ -110,3 +110,13 @@ This step is local and does not call an LLM or send transcript content over the 
 
 Hosted model adapters are optional and isolated from the transcription path. See [providers](docs/providers.md).
 OpenCode Go can be used through an existing subscription without exposing or reusing project API keys.
+
+Migrate an old `run.json` bundle without repeating ASR, then run an explicitly authorized extraction:
+
+```bash
+uv run audio2md-study migrate-legacy OLD_BUNDLE NEW_BUNDLE
+uv run audio2md-study prepare NEW_BUNDLE
+uv run audio2md-study extract NEW_BUNDLE --provider opencode-go --execute-hosted
+```
+
+An identical completed extraction is skipped. `--force` is required to incur a new hosted run deliberately.
